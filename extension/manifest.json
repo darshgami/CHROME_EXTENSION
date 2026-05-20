@@ -45,6 +45,7 @@
         "src/scraper/relevanceEngine.js",
         "src/scraper/keywordValidator.js",
         "src/scraper/infiniteScrollManager.js",
+        "src/scraper/queueManager.js",
         "src/scraper/extractionFallback.js",
         "src/matcher/fuzzyMatcher.js",
         "src/matcher/synonymEngine.js",

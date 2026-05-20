@@ -1,12 +1,13 @@
 /**
- * Lead Scraper Pro - Universal Scraper Engine
- * Integrates listing detection, fallbacks, relevance, and scroll management.
+ * Lead Scraper Pro - Universal Scraper Engine (CPU & Scroll Optimized)
+ * Coordinates listing discovery, queued extraction, relevance scoring, and safety-scrolling.
  */
 
 import { smartDetector } from './smartDetector.js';
 import { extractionFallback } from './extractionFallback.js';
 import { relevanceEngine } from './relevanceEngine.js';
 import { InfiniteScrollManager } from './infiniteScrollManager.js';
+import { QueueManager } from './queueManager.js';
 import { dedupe } from '../utils/dedupe.js';
 import { debugLogger } from '../testing/debugLogger.js';
 
@@ -19,13 +20,45 @@ export class UniversalScraper {
         this.leads = [];
         this.scrollManager = new InfiniteScrollManager({
             scrollDelay: config.scrollDelay || 2000,
-            maxScrolls: config.maxScrolls || 15
+            maxScrollLimit: config.maxScrolls || 100
         });
+        this.queueManager = new QueueManager({
+            concurrency: 2, // Parse 2 cards concurrently
+            delayBetweenBatches: 100 // 100ms pause to yield CPU thread
+        });
+
+        this.isStopped = false;
+        this.isPaused = false;
     }
 
     /**
-     * Extract leads from the current page structure.
-     * @returns {Object[]} Extracted and scored leads
+     * Trigger stopping of the scraper session.
+     */
+    stop() {
+        this.isStopped = true;
+        this.scrollManager.stopObserver();
+        debugLogger.log('Scraper instance stopped.', 'info');
+    }
+
+    /**
+     * Trigger pause state.
+     */
+    pause() {
+        this.isPaused = true;
+        debugLogger.log('Scraper instance paused.', 'info');
+    }
+
+    /**
+     * Trigger resume state.
+     */
+    resume() {
+        this.isPaused = false;
+        debugLogger.log('Scraper instance resumed.', 'info');
+    }
+
+    /**
+     * Extract leads from the current page structure using throttled queue management.
+     * @returns {Promise<Object[]>} Extracted and scored leads
      */
     async scrape() {
         debugLogger.log('🎬 Scrape cycle started.', 'info');
@@ -33,18 +66,20 @@ export class UniversalScraper {
         try {
             // 1. Detect candidate business card elements
             const containers = smartDetector.detect();
-            debugLogger.log(`Found ${containers.length} potential business cards.`, 'info');
+            debugLogger.log(`Found ${containers.length} potential business cards on page.`, 'info');
             
-            const rawLeads = [];
+            if (containers.length === 0) {
+                return [];
+            }
 
-            // 2. Loop through elements and extract fields
-            containers.forEach((container, index) => {
-                const lead = this.extractLeadFromContainer(container, index);
-                if (lead.name) {
-                    rawLeads.push(lead);
-                } else {
-                    debugLogger.log(`Skipped card ${index}: Name could not be resolved.`, 'warning');
-                }
+            // 2. Queue containers for throttled CPU-safe extraction
+            this.queueManager.clear();
+            this.queueManager.enqueue(containers);
+
+            const rawLeads = await this.queueManager.processAll(async (container) => {
+                if (this.isStopped) return null;
+                const lead = this.extractLeadFromContainer(container);
+                return lead.name ? lead : null;
             });
 
             // 3. Score and filter leads via relevance engine
@@ -66,42 +101,44 @@ export class UniversalScraper {
     }
 
     /**
-     * Extract fields from a single container element, utilizing fallbacks as needed.
+     * Extract fields from a single container element.
      */
-    extractLeadFromContainer(container, index) {
+    extractLeadFromContainer(container) {
         let name = '';
         let phones = [];
         let emails = [];
         let website = '';
         let address = '';
+        let rating = '';
+        let reviews = '';
+        let whatsapp = '';
+        let category = '';
 
         try {
-            // Extract using Fallback engine (which handles standard + alternate DOM traversal)
             name = extractionFallback.extractName(container);
             phones = extractionFallback.extractPhones(container);
             emails = extractionFallback.extractEmails(container);
             website = extractionFallback.extractWebsite(container);
             address = extractionFallback.extractAddress(container);
+            rating = extractionFallback.extractRating(container);
+            reviews = extractionFallback.extractReviews(container);
+            whatsapp = extractionFallback.extractWhatsApp(container);
+            category = extractionFallback.extractCategory(container);
         } catch (err) {
-            debugLogger.log(`Error parsing card ${index}: ${err.message}`, 'warning');
+            // Fail silently
         }
 
-        // Clean values
         const primaryPhone = phones[0] || '';
         const primaryEmail = emails[0] || '';
 
-        // Extract city/postal code from address
+        // Extract city/postal code
         let city = '';
         let postalCode = '';
         if (address) {
-            // Attempt simple city parse (usually before postal code, or comma separated)
             const parts = address.split(',');
             if (parts.length > 1) {
-                // Take the second-to-last part as likely city
                 city = parts[parts.length - 2].trim();
             }
-            
-            // Regex match postal code
             const postalMatch = address.match(/\b\d{5,6}\b/);
             if (postalMatch) {
                 postalCode = postalMatch[0];
@@ -114,6 +151,10 @@ export class UniversalScraper {
             email: primaryEmail,
             website,
             address,
+            rating,
+            reviews,
+            whatsapp,
+            category,
             city: city || this.config.city || '',
             postalCode,
             extractedDescription: container.innerText || '',
@@ -123,30 +164,49 @@ export class UniversalScraper {
 
     /**
      * Executes automated slow-scrolling while collecting leads.
-     * @param {Function} pageScrapedCallback - Function called after each scroll/scrape step
      */
     async startScrapingSession(pageScrapedCallback) {
+        this.isStopped = false;
+        this.isPaused = false;
+        
+        // Reset cache at the start of a session
+        smartDetector.clearCache();
+        
+        // Start scroll observer and save coordinates
         this.scrollManager.startObserver();
+        
         let sessionActive = true;
         
-        while (sessionActive) {
-            // 1. Scrape current DOM page
-            const currentLeads = await this.scrape();
-            if (pageScrapedCallback) {
-                pageScrapedCallback(currentLeads);
+        while (sessionActive && !this.isStopped) {
+            // Check for paused state
+            while (this.isPaused && !this.isStopped) {
+                await new Promise(r => setTimeout(r, 500));
             }
+            if (this.isStopped) break;
 
-            // 2. Perform one scroll step
-            debugLogger.log(`Scrolling page... Step ${this.scrollManager.scrollCount + 1}`, 'info');
-            const result = await this.scrollManager.scrollStep(this.leads.length);
+            // 1. Scrape page
+            const currentLeads = await this.scrape();
+            if (this.isStopped) break;
             
-            if (result.stopReached) {
-                debugLogger.log('Stopping scroll loop: Safety criteria triggered.', 'info');
+            if (pageScrapedCallback) {
+                await pageScrapedCallback(currentLeads);
+            }
+            
+            if (this.isStopped) break;
+
+            // 2. Perform scroll step
+            const shouldStop = await this.scrollManager.scrollStep(this.leads);
+            if (shouldStop || this.isStopped) {
                 sessionActive = false;
             }
         }
 
+        // Disconnect MutationObserver
         this.scrollManager.stopObserver();
+        
+        // Restore page position smoothly
+        this.scrollManager.restorePosition();
+        
         debugLogger.log('Scraping session finished.', 'success');
     }
 }

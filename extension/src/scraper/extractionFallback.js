@@ -134,5 +134,48 @@ export const extractionFallback = {
         }
 
         return '';
+    },
+
+    extractRating(container) {
+        const text = container.innerText || '';
+        const match = text.match(/(\d\.\d)(?:\s*(?:\/|out of)\s*5|\s*stars?)/i);
+        if (match) return match[1];
+
+        // Sometimes it's just class names or title
+        const stars = container.querySelector('[aria-label*="star"], [class*="rating"], [class*="stars"]');
+        if (stars) {
+            const attrText = stars.getAttribute('aria-label') || stars.innerText;
+            const fallbackMatch = attrText.match(/(\d\.\d)/);
+            if (fallbackMatch) return fallbackMatch[1];
+        }
+        return '';
+    },
+
+    extractReviews(container) {
+        const text = container.innerText || '';
+        const match = text.match(/(\d{1,5}(?:,\d{3})*)\s*(?:reviews?|ratings?|votes?)/i);
+        if (match) return match[1].replace(/,/g, '');
+        return '';
+    },
+
+    extractWhatsApp(container) {
+        // Look for wa.me links
+        const waLinks = Array.from(container.querySelectorAll('a[href*="wa.me"], a[href*="whatsapp.com"]'))
+            .map(a => {
+                const match = a.href.match(/phone=([0-9+]+)|wa\.me\/([0-9+]+)/);
+                return match ? (match[1] || match[2]) : null;
+            }).filter(Boolean);
+            
+        if (waLinks.length > 0) return waLinks[0];
+        return '';
+    },
+
+    extractCategory(container) {
+        // Find tags or labels that look like categories
+        const tags = Array.from(container.querySelectorAll('[class*="category"], [class*="tag"], [class*="label"], [class*="industry"]'));
+        if (tags.length > 0 && tags[0].innerText) {
+            return tags[0].innerText.trim();
+        }
+        return '';
     }
 };

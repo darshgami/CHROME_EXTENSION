@@ -1,12 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Play, Square, Pause, Download, Trash2, Settings, AlertCircle, 
-  CheckCircle2, RefreshCw, FileSpreadsheet, FileText, Terminal, 
-  Search, MapPin, Activity, Sparkles, AlertTriangle, Eye, ShieldAlert, Cpu
+  Play, Square, Pause, Trash2, AlertCircle, 
+  FileSpreadsheet, FileText, Search, MapPin, Cpu
 } from 'lucide-react';
 import { csvExport } from '../extension/src/export/csvExport.js';
 import { excelExport } from '../extension/src/export/excelExport.js';
-import { autoTester } from '../extension/src/testing/autoTester.js';
 
 export default function App() {
   const [leads, setLeads] = useState([]);
@@ -14,20 +12,7 @@ export default function App() {
   const [keyword, setKeyword] = useState('');
   const [city, setCity] = useState('');
   const [pincode, setPincode] = useState('');
-  const [speed, setSpeed] = useState('medium'); // slow, medium, fast
-  const [logs, setLogs] = useState([]);
-  const [activeTab, setActiveTab] = useState('leads'); // leads, logs, diagnostics
-  const [diagnosticsResult, setDiagnosticsResult] = useState(null);
-  const [testingDiagnostics, setTestingDiagnostics] = useState(false);
-  const [showKeywordSuggestions, setShowKeywordSuggestions] = useState(false);
-
-  const logsEndRef = useRef(null);
-
-  const keywordSuggestions = [
-    'Auto Parts Spares', 'Software Development Agency', 'Electronics Retailer',
-    'AC Repair Maintenance', 'Banana Wholesaler', 'Laptop Computers Dealer',
-    'Restaurants and Cafes', 'Boutique Apparel Clothing'
-  ];
+  const [activeTabUrl, setActiveTabUrl] = useState('');
 
   // Load initial state and set up listener
   useEffect(() => {
@@ -36,13 +21,37 @@ export default function App() {
       if (result.lsp_current_session) {
         setSession(result.lsp_current_session);
         if (result.lsp_current_session.config) {
-          setKeyword(result.lsp_current_session.config.keyword || '');
+          if (!keyword) setKeyword(result.lsp_current_session.config.keyword || '');
           setCity(result.lsp_current_session.config.city || '');
           setPincode(result.lsp_current_session.config.pincode || '');
-          setSpeed(result.lsp_current_session.config.speed || 'medium');
         }
       }
     });
+
+    // Auto-fetch active tab
+    if (chrome.tabs) {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs && tabs[0] && tabs[0].url) {
+          const url = tabs[0].url;
+          setActiveTabUrl(url);
+          
+          // Auto-detect keyword from URL if possible
+          if (!keyword) {
+            try {
+              const urlObj = new URL(url);
+              let detected = '';
+              if (urlObj.hostname.includes('justdial')) detected = url.split('/')[4] || url.split('/')[3];
+              else if (urlObj.hostname.includes('indiamart')) detected = urlObj.searchParams.get('ss') || url.split('/')[3];
+              else if (urlObj.hostname.includes('yelp')) detected = urlObj.searchParams.get('find_desc');
+              
+              if (detected) {
+                setKeyword(decodeURIComponent(detected).replace(/[-_+]/g, ' '));
+              }
+            } catch (e) { }
+          }
+        }
+      });
+    }
 
     const storageListener = (changes, areaName) => {
       if (areaName === 'local') {
@@ -57,20 +66,11 @@ export default function App() {
     chrome.storage.onChanged.addListener(storageListener);
 
     const messageListener = (message) => {
-      if (message.type === 'LOG_MESSAGE') {
-        setLogs(prev => [...prev.slice(-99), message.payload]);
-      } else if (message.type === 'CLEAR_LOGS') {
-        setLogs([]);
-      } else if (message.type === 'LEAD_FOUND') {
+      if (message.type === 'LEAD_FOUND') {
         // Automatically scroll to see new lead
       }
     };
     chrome.runtime.onMessage.addListener(messageListener);
-
-    // Populate initial dummy logs or instructions
-    setLogs([
-      { id: '1', level: 'info', timeLabel: new Date().toLocaleTimeString(), message: 'System initialized. Ready to scrape.' }
-    ]);
 
     return () => {
       chrome.storage.onChanged.removeListener(storageListener);
@@ -78,26 +78,17 @@ export default function App() {
     };
   }, []);
 
-  // Scroll to bottom of logs console on update
-  useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [logs]);
-
   const handleStart = () => {
     if (!keyword.trim()) {
       alert('Please enter a keyword/category to search.');
       return;
     }
     
-    // Resolve delay based on speed control
-    const delayMap = { slow: 4000, medium: 2000, fast: 1000 };
     const payload = {
       keyword: keyword.trim(),
       city: city.trim(),
       pincode: pincode.trim(),
-      scrollDelay: delayMap[speed],
+      scrollDelay: 2000,
       maxScrolls: 15
     };
 
@@ -133,34 +124,7 @@ export default function App() {
     excelExport.export(leads, `Leads_${keyword || 'export'}`);
   };
 
-  const runDiagnostics = () => {
-    setTestingDiagnostics(true);
-    setDiagnosticsResult(null);
-    setActiveTab('diagnostics');
-
-    chrome.runtime.sendMessage({ type: 'RUN_DIAGNOSTICS' }, (response) => {
-      setTestingDiagnostics(false);
-      if (!response) {
-        setDiagnosticsResult({ error: 'No response from page context. Make sure you are on a webpage and refresh the page.' });
-      } else if (response.error) {
-        setDiagnosticsResult({ error: response.error });
-      } else {
-        setDiagnosticsResult(response.diagnostics);
-      }
-    });
-  };
-
-  const runSelfTests = async () => {
-    setActiveTab('logs');
-    await autoTester.runSelfTests();
-  };
-
-  // Stats counting
   const totalCount = leads.length;
-  const highConfCount = leads.filter(l => l.relevanceScore >= 75).length;
-  const medConfCount = leads.filter(l => l.relevanceScore >= 50 && l.relevanceScore < 75).length;
-  const lowConfCount = leads.filter(l => l.relevanceScore < 50).length;
-
   const isRunning = session.status === 'running';
   const isPaused = session.status === 'paused';
 
@@ -199,6 +163,14 @@ export default function App() {
       {/* BODY CONFIG */}
       <main className="flex-1 overflow-y-auto py-3 space-y-4 pr-1">
         
+        {/* URL DISPLAY */}
+        {activeTabUrl && (
+          <div className="bg-slate-900 border border-slate-800 rounded-lg p-2 text-[9px] text-slate-400 font-mono truncate">
+            <span className="text-indigo-400 font-semibold uppercase mr-1">Target:</span> 
+            {activeTabUrl}
+          </div>
+        )}
+
         {/* INPUTS ROW */}
         <section className="bg-slate-900/60 border border-slate-800/80 p-3 rounded-xl shadow-lg space-y-3">
           <div className="relative">
@@ -210,27 +182,10 @@ export default function App() {
                   type="text" 
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
-                  onFocus={() => setShowKeywordSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowKeywordSuggestions(false), 200)}
                   placeholder="e.g. Auto Parts, Wholesaler, Repair"
                   className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-lg py-1.5 pl-9 pr-3 text-xs outline-none transition-colors"
                   disabled={isRunning || isPaused}
                 />
-                
-                {/* Keyword Suggestions Dropdown */}
-                {showKeywordSuggestions && (
-                  <div className="absolute left-0 right-0 top-full mt-1 bg-slate-900 border border-slate-800 rounded-lg shadow-xl z-55 max-h-40 overflow-y-auto text-xs py-1">
-                    {keywordSuggestions.map(s => (
-                      <button
-                        key={s}
-                        onMouseDown={() => setKeyword(s)}
-                        className="w-full text-left px-3 py-1.5 hover:bg-slate-800/50 hover:text-indigo-400 transition-colors"
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -261,42 +216,6 @@ export default function App() {
                 className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-lg py-1.5 px-3 mt-1 text-xs outline-none transition-colors"
                 disabled={isRunning || isPaused}
               />
-            </div>
-          </div>
-
-          {/* Speed & Settings Control */}
-          <div className="flex justify-between items-center pt-1">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Scraping Speed:</span>
-              <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[10px]">
-                {['slow', 'medium', 'fast'].map(s => (
-                  <button
-                    key={s}
-                    onClick={() => setSpeed(s)}
-                    className={`px-2 py-0.5 rounded-md font-medium capitalize transition-colors ${
-                      speed === s ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                    disabled={isRunning || isPaused}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <button 
-                onClick={runDiagnostics}
-                className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 bg-slate-800 hover:bg-slate-700/80 rounded-lg transition-colors border border-slate-700/60"
-              >
-                <Activity className="w-3 h-3 text-indigo-400" /> Page Health
-              </button>
-              <button 
-                onClick={runSelfTests}
-                className="flex items-center gap-1 text-[10px] font-semibold px-2 py-1 bg-slate-800 hover:bg-slate-700/80 rounded-lg transition-colors border border-slate-700/60"
-              >
-                <Sparkles className="w-3 h-3 text-amber-400" /> Self-Test
-              </button>
             </div>
           </div>
         </section>
@@ -339,39 +258,10 @@ export default function App() {
         </section>
 
         {/* STATS */}
-        <section className="grid grid-cols-4 gap-2.5">
+        <section className="grid grid-cols-1 gap-2.5">
           <div className="bg-slate-900/60 border border-slate-800 p-2 rounded-xl text-center">
             <span className="text-[9px] text-slate-400 uppercase font-semibold">Total Leads</span>
             <div className="text-lg font-extrabold text-slate-100 mt-0.5">{totalCount}</div>
-          </div>
-          <div className="bg-slate-900/60 border border-slate-850 p-2 rounded-xl text-center">
-            <span className="text-[9px] text-emerald-400 uppercase font-semibold">High Conf</span>
-            <div className="text-lg font-extrabold text-emerald-400 mt-0.5">{highConfCount}</div>
-          </div>
-          <div className="bg-slate-900/60 border border-slate-850 p-2 rounded-xl text-center">
-            <span className="text-[9px] text-indigo-400 uppercase font-semibold">Med Conf</span>
-            <div className="text-lg font-extrabold text-indigo-400 mt-0.5">{medConfCount}</div>
-          </div>
-          <div className="bg-slate-900/60 border border-slate-850 p-2 rounded-xl text-center">
-            <span className="text-[9px] text-rose-400 uppercase font-semibold">Low/Bad</span>
-            <div className="text-lg font-extrabold text-rose-400 mt-0.5">{lowConfCount}</div>
-          </div>
-        </section>
-
-        {/* TABS HEADER */}
-        <section className="border-b border-slate-800">
-          <div className="flex gap-4 text-xs font-semibold">
-            {['leads', 'logs', 'diagnostics'].map(t => (
-              <button
-                key={t}
-                onClick={() => setActiveTab(t)}
-                className={`pb-2 capitalize border-b-2 transition-all px-1 ${
-                  activeTab === t ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
           </div>
         </section>
 
@@ -379,176 +269,81 @@ export default function App() {
         <section className="min-h-[140px] max-h-[180px] overflow-hidden">
           
           {/* LEADS LIST */}
-          {activeTab === 'leads' && (
-            <div className="h-full flex flex-col">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-[10px] text-slate-400 font-semibold uppercase">Lead Preview (Last 20)</span>
-                <div className="flex gap-1.5">
-                  <button 
-                    onClick={handleExportExcel}
-                    disabled={leads.length === 0}
-                    className="flex items-center gap-1 text-[9px] font-bold px-2 py-1 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                  >
-                    <FileSpreadsheet className="w-2.5 h-2.5" /> Excel
-                  </button>
-                  <button 
-                    onClick={handleExportCSV}
-                    disabled={leads.length === 0}
-                    className="flex items-center gap-1 text-[9px] font-bold px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                  >
-                    <FileText className="w-2.5 h-2.5" /> CSV
-                  </button>
-                  <button 
-                    onClick={handleClear}
-                    disabled={leads.length === 0}
-                    className="flex items-center gap-1 text-[9px] font-bold px-2 py-1 bg-rose-500/10 hover:bg-rose-600 text-rose-400 hover:text-white rounded transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                  >
-                    <Trash2 className="w-2.5 h-2.5" /> Clear
-                  </button>
-                </div>
-              </div>
-
-              {leads.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-lg p-4 bg-slate-900/20">
-                  <AlertCircle className="w-6 h-6 mb-1.5 text-slate-600" />
-                  No leads found. Enter keywords and start scraping.
-                </div>
-              ) : (
-                <div className="flex-1 overflow-y-auto border border-slate-800 rounded-lg bg-slate-950">
-                  <table className="w-full text-left text-[11px] border-collapse">
-                    <thead className="sticky top-0 bg-slate-900 text-slate-400 border-b border-slate-800">
-                      <tr>
-                        <th className="p-2 font-semibold">Name</th>
-                        <th className="p-2 font-semibold">Phone</th>
-                        <th className="p-2 font-semibold">City</th>
-                        <th className="p-2 font-semibold text-center">Score</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-900">
-                      {leads.slice(-20).reverse().map((l, idx) => (
-                        <tr key={idx} className="hover:bg-slate-900/50 transition-colors">
-                          <td className="p-2 font-medium truncate max-w-[150px]">{l.name}</td>
-                          <td className="p-2 text-slate-300 font-mono">{l.phone || 'N/A'}</td>
-                          <td className="p-2 text-slate-400 truncate max-w-[100px]">{l.city || 'N/A'}</td>
-                          <td className="p-2 text-center">
-                            <span className={`px-1.5 py-0.5 rounded font-bold text-[9px] ${
-                              l.relevanceScore >= 75 ? 'bg-emerald-500/10 text-emerald-400' :
-                              l.relevanceScore >= 50 ? 'bg-indigo-500/10 text-indigo-400' :
-                              'bg-rose-500/10 text-rose-400'
-                            }`}>
-                              {l.relevanceScore}%
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* LOGS CONSOLE */}
-          {activeTab === 'logs' && (
-            <div className="h-full flex flex-col">
-              <div className="flex justify-between items-center mb-1.5">
-                <span className="text-[10px] text-slate-400 font-semibold uppercase flex items-center gap-1">
-                  <Terminal className="w-3 h-3 text-slate-400" /> Execution Console
-                </span>
+          <div className="h-full flex flex-col">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-[10px] text-slate-400 font-semibold uppercase">Lead Preview (Last 20)</span>
+              <div className="flex gap-1.5">
                 <button 
-                  onClick={() => setLogs([])}
-                  className="text-[9px] font-semibold text-slate-500 hover:text-slate-300"
+                  onClick={handleExportExcel}
+                  disabled={leads.length === 0}
+                  className="flex items-center gap-1 text-[9px] font-bold px-2 py-1 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded transition-colors disabled:opacity-30 disabled:pointer-events-none"
                 >
-                  Clear Logs
+                  <FileSpreadsheet className="w-2.5 h-2.5" /> Excel
+                </button>
+                <button 
+                  onClick={handleExportCSV}
+                  disabled={leads.length === 0}
+                  className="flex items-center gap-1 text-[9px] font-bold px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                >
+                  <FileText className="w-2.5 h-2.5" /> CSV
+                </button>
+                <button 
+                  onClick={handleClear}
+                  disabled={leads.length === 0}
+                  className="flex items-center gap-1 text-[9px] font-bold px-2 py-1 bg-rose-500/10 hover:bg-rose-600 text-rose-400 hover:text-white rounded transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                >
+                  <Trash2 className="w-2.5 h-2.5" /> Clear
                 </button>
               </div>
-
-              <div className="flex-1 overflow-y-auto bg-black/40 border border-slate-800 rounded-lg p-2 font-mono text-[9px] space-y-1">
-                {logs.map((log) => (
-                  <div key={log.id} className="flex gap-2">
-                    <span className="text-slate-600">{log.timeLabel}</span>
-                    <span className={
-                      log.level === 'success' ? 'text-emerald-400' :
-                      log.level === 'error' ? 'text-rose-400 font-semibold' :
-                      log.level === 'warning' ? 'text-amber-400' :
-                      'text-slate-300'
-                    }>
-                      {log.message}
-                    </span>
-                  </div>
-                ))}
-                <div ref={logsEndRef} />
-              </div>
             </div>
-          )}
 
-          {/* DIAGNOSTICS */}
-          {activeTab === 'diagnostics' && (
-            <div className="h-full flex flex-col">
-              <div className="flex justify-between items-center mb-1.5">
-                <span className="text-[10px] text-slate-400 font-semibold uppercase">Extractor Diagnostics</span>
+            {leads.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-lg p-4 bg-slate-900/20">
+                <AlertCircle className="w-6 h-6 mb-1.5 text-slate-600" />
+                No leads found. Enter keywords and start scraping.
               </div>
-
-              <div className="flex-1 bg-slate-900/40 border border-slate-800 rounded-lg p-3 text-xs overflow-y-auto">
-                {testingDiagnostics ? (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                    <RefreshCw className="w-5 h-5 animate-spin mb-1 text-indigo-500" />
-                    Querying DOM structures...
-                  </div>
-                ) : diagnosticsResult ? (
-                  diagnosticsResult.error ? (
-                    <div className="flex gap-2 text-rose-400">
-                      <ShieldAlert className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <div className="font-bold">Diagnostic Failed</div>
-                        <div className="text-[10px] mt-0.5">{diagnosticsResult.error}</div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="font-bold text-slate-200">Extractor Health:</span>
-                        <span className={`px-2 py-0.5 rounded-full font-extrabold text-[10px] ${
-                          diagnosticsResult.status === 'HEALTHY' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                          diagnosticsResult.status === 'WEAK' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                          'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                        }`}>
-                          {diagnosticsResult.status}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-[10px]">
-                        <div className="bg-slate-950 p-1.5 rounded border border-slate-800 flex justify-between">
-                          <span className="text-slate-400">Cards Found:</span>
-                          <span className="font-bold text-slate-200">{diagnosticsResult.cardCount}</span>
-                        </div>
-                        <div className="bg-slate-950 p-1.5 rounded border border-slate-800 flex justify-between">
-                          <span className="text-slate-400">Name Coverage:</span>
-                          <span className="font-bold text-indigo-400">{diagnosticsResult.nameCoverage}%</span>
-                        </div>
-                        <div className="bg-slate-950 p-1.5 rounded border border-slate-800 flex justify-between">
-                          <span className="text-slate-400">Phone Coverage:</span>
-                          <span className="font-bold text-emerald-400">{diagnosticsResult.phoneCoverage}%</span>
-                        </div>
-                        <div className="bg-slate-950 p-1.5 rounded border border-slate-800 flex justify-between">
-                          <span className="text-slate-400">Email Coverage:</span>
-                          <span className="font-bold text-amber-400">{diagnosticsResult.emailCoverage}%</span>
-                        </div>
-                      </div>
-                      <div className="text-[10px] text-slate-400 italic bg-black/20 p-1.5 rounded border border-slate-800/50 mt-1">
-                        Recommendation: {diagnosticsResult.recommendation}
-                      </div>
-                    </div>
-                  )
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-500">
-                    <Activity className="w-5 h-5 mb-1 text-slate-600" />
-                    Click "Page Health" above to analyze the active webpage DOM layout.
-                  </div>
-                )}
+            ) : (
+              <div className="flex-1 overflow-y-auto border border-slate-800 rounded-lg bg-slate-950">
+                <table className="w-full text-left text-[11px] border-collapse">
+                  <thead className="sticky top-0 bg-slate-900 text-slate-400 border-b border-slate-800">
+                    <tr>
+                      <th className="p-2 font-semibold">Name</th>
+                      <th className="p-2 font-semibold">Contact</th>
+                      <th className="p-2 font-semibold">Category/Rating</th>
+                      <th className="p-2 font-semibold text-center">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-900">
+                    {leads.slice(-20).reverse().map((l, idx) => (
+                      <tr key={idx} className="hover:bg-slate-900/50 transition-colors">
+                        <td className="p-2 font-medium max-w-[120px]">
+                          <div className="truncate text-white">{l.name}</div>
+                          <div className="text-[9px] text-slate-500 truncate">{l.city}</div>
+                        </td>
+                        <td className="p-2 text-slate-300 font-mono text-[9px]">
+                          <div>{l.phone || l.whatsapp || 'N/A'}</div>
+                          {l.email && <div className="text-indigo-300 truncate max-w-[80px]">{l.email}</div>}
+                        </td>
+                        <td className="p-2 text-slate-400 text-[9px] max-w-[100px]">
+                          <div className="truncate">{l.category || 'N/A'}</div>
+                          {l.rating && <div className="text-amber-400 font-bold">★ {l.rating} {l.reviews ? `(${l.reviews})` : ''}</div>}
+                        </td>
+                        <td className="p-2 text-center">
+                          <span className={`px-1.5 py-0.5 rounded font-bold text-[9px] ${
+                            l.relevanceScore >= 75 ? 'bg-emerald-500/10 text-emerald-400' :
+                            l.relevanceScore >= 50 ? 'bg-indigo-500/10 text-indigo-400' :
+                            'bg-rose-500/10 text-rose-400'
+                          }`}>
+                            {l.relevanceScore}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </section>
       </main>
 

@@ -25,14 +25,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'STOP_SCRAPING':
             isScraping = false;
             isPaused = false;
+            if (scraper) {
+                scraper.stop();
+            }
             debugLogger.log('Scraping session stopped by user.', 'warning');
             break;
         case 'PAUSE_SCRAPING':
             isPaused = true;
+            if (scraper) {
+                scraper.pause();
+            }
             debugLogger.log('Scraping session paused.', 'info');
             break;
         case 'RESUME_SCRAPING':
             isPaused = false;
+            if (scraper) {
+                scraper.resume();
+            }
             debugLogger.log('Scraping session resumed.', 'success');
             break;
         case 'RUN_DIAGNOSTICS':
@@ -53,11 +62,7 @@ async function startScrapingSession(config) {
         await scraper.startScrapingSession(async (leads) => {
             // Callback executed after each scroll/scrape step
             
-            // Wait while paused
-            while (isScraping && isPaused) {
-                await new Promise(r => setTimeout(r, 500));
-            }
-
+            // Only report if still scraping
             if (!isScraping) return;
 
             // Send leads to background
@@ -66,7 +71,7 @@ async function startScrapingSession(config) {
                     type: 'LEAD_FOUND',
                     payload: lead
                 }).catch(() => {
-                    // Ignore errors if runtime disconnects
+                    // Ignore runtime disconnect errors
                 });
             });
         });

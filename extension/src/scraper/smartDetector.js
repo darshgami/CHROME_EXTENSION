@@ -1,19 +1,42 @@
 /**
- * Lead Scraper Pro - Smart Detector
- * Dynamic heuristic discovery of business listings without static selectors.
+ * Lead Scraper Pro - Smart Detector (CPU Optimized)
+ * Dynamic heuristic discovery of business listings with selector caching.
  */
 
 import { REGEX } from '../utils/regex.js';
 import { domHelpers } from '../utils/domHelpers.js';
 
 export const smartDetector = {
+    cachedSelector: null,
+
+    /**
+     * Clear selector cache when a new session starts.
+     */
+    clearCache() {
+        this.cachedSelector = null;
+    },
+
     /**
      * Automatically discover and return DOM elements that likely represent business listing cards.
+     * Reuses cached selectors if valid to optimize CPU and memory footprint.
      * @returns {HTMLElement[]}
      */
     detect() {
-        console.log('🔍 Running Smart Container Detection...');
-        
+        // 1. Try cached selector first to prevent heavy DOM traversals
+        if (this.cachedSelector) {
+            try {
+                const els = Array.from(document.querySelectorAll(this.cachedSelector))
+                    .filter(el => domHelpers.isVisible(el));
+                if (els.length >= 2) {
+                    return els;
+                }
+            } catch (err) {
+                // Selector syntax error or DOM detached
+            }
+            this.cachedSelector = null; // Reset if invalid
+        }
+
+        console.log('🔍 Running Smart Container Heuristic Discovery...');
         let candidates = [];
 
         // Strategy 1: Class Repetition & Text Density
@@ -31,12 +54,15 @@ export const smartDetector = {
         // Sort by heuristic score (highest first)
         candidates.sort((a, b) => b.score - a.score);
 
-        // Filter out overlapping candidates (e.g., if a candidate contains another candidate, choose the best one)
+        // Filter out overlapping candidates (choose parent/child logically)
         const bestContainers = this.filterOverlapping(candidates);
 
         if (bestContainers.length > 0) {
-            console.log(`🎯 Chosen Card Selector: "${bestContainers[0].selector}" with ${bestContainers[0].elements.length} cards (Score: ${bestContainers[0].score})`);
-            return bestContainers[0].elements;
+            const best = bestContainers[0];
+            // Cache the selector for subsequent scrolls in the same session
+            this.cachedSelector = best.selector;
+            console.log(`🎯 Chosen Card Selector: "${best.selector}" (Score: ${best.score}, Count: ${best.elements.length})`);
+            return best.elements;
         }
 
         console.warn('⚠️ No repeating card structures detected via heuristics.');
@@ -195,10 +221,8 @@ export const smartDetector = {
         const unique = [];
         
         candidates.forEach(cand => {
-            // Ensure elements are valid DOM nodes
             if (!cand.elements || cand.elements.length === 0) return;
             
-            // Check if we already have a candidate that is the parent of or overlapping with this one
             const isDuplicate = unique.some(existing => {
                 const e0 = existing.elements[0];
                 const c0 = cand.elements[0];
