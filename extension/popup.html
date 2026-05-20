@@ -3,95 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lead Scraper Pro - Global</title>
-    <link rel="stylesheet" href="popup.css">
+    <title>Lead Scraper Pro</title>
+    <script src="./xlsx.full.min.js"></script>
+  <script type="module" crossorigin src="./popup.js"></script>
+  <link rel="stylesheet" crossorigin href="./popup.css">
 </head>
-<body>
-    <div class="container">
-        <header>
-            <div class="logo">
-                <span class="icon">🚀</span>
-                <h1>Lead Scraper <span>Pro</span></h1>
-            </div>
-            <div class="language-selector">
-                <select id="languageSelect">
-                    <option value="en">English</option>
-                    <option value="hi">हिन्दी</option>
-                    <option value="es">Español</option>
-                    <option value="fr">Français</option>
-                    <option value="de">Deutsch</option>
-                </select>
-            </div>
-        </header>
-
-        <main>
-            <section class="search-config">
-                <div class="input-group full-width">
-                    <label for="keywordInput">Keywords (Business Category)</label>
-                    <input type="text" id="keywordInput" placeholder="e.g. Auto Parts, Software Development">
-                </div>
-
-                <div class="input-group">
-                    <label for="cityInput">City/Location (Optional)</label>
-                    <input type="text" id="cityInput" placeholder="e.g. Rajkot, New York">
-                </div>
-            </section>
-
-            <section class="actions">
-                <button id="startBtn" class="btn btn-primary">Start Scraping</button>
-                <button id="stopBtn" class="btn btn-danger" disabled>Stop Scraping</button>
-            </section>
-
-            <section class="stats-card">
-                <div class="stat-item">
-                    <span class="label">Total Leads</span>
-                    <span id="totalLeads" class="value">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="label">Valid</span>
-                    <span id="validLeads" class="value text-success">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="label">Invalid</span>
-                    <span id="invalidLeads" class="value text-danger">0</span>
-                </div>
-            </section>
-
-            <section class="progress-bar-container">
-                <div id="progressBar" class="progress-bar" style="width: 0%"></div>
-            </section>
-
-            <section class="preview-section">
-                <div class="section-header">
-                    <h2>Live Preview</h2>
-                    <button id="exportBtn" class="btn btn-outline" disabled>Export Excel</button>
-                    <button id="clearBtn" class="btn btn-outline btn-small">Clear</button>
-                </div>
-                <div class="table-container">
-                    <table id="resultsTable">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>City</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Leads will be injected here -->
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-        </main>
-
-        <footer>
-            <div class="status-indicator">
-                <span class="dot"></span>
-                <span id="statusText">Ready to scrape</span>
-            </div>
-            <div class="version">v1.0.0</div>
-        </footer>
-    </div>
-    <script type="module" src="popup.js"></script>
+<body class="bg-slate-950 text-slate-100 w-[550px] min-h-[600px] overflow-x-hidden">
+    <div id="root"></div>
 </body>
 </html>

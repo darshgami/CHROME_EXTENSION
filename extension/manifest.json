@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Lead Scraper Pro - Global",
+  "name": "Lead Scraper Pro - Universal Business Lead Finder",
   "version": "1.0.0",
-  "description": "Advanced global business lead scraper for B2B directories worldwide",
+  "description": "Intelligent B2B lead finder extension that dynamically scrapes leads on any directory platform.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -37,17 +37,25 @@
     {
       "resources": [
         "xlsx.full.min.js",
+        "libs/fuse.js",
+        "libs/papaparse.js",
         "content-main.js",
-        "scraper.js",
-        "constants.js",
-        "utils.js",
-        "selectorDetector.js",
-        "structuredDataExtractor.js",
-        "phoneExtractor.js",
-        "addressExtractor.js",
-        "contactExtractor.js",
-        "dataCleaner.js",
-        "keywordMatcher.js"
+        "src/scraper/universalScraper.js",
+        "src/scraper/smartDetector.js",
+        "src/scraper/relevanceEngine.js",
+        "src/scraper/keywordValidator.js",
+        "src/scraper/infiniteScrollManager.js",
+        "src/scraper/extractionFallback.js",
+        "src/matcher/fuzzyMatcher.js",
+        "src/matcher/synonymEngine.js",
+        "src/export/csvExport.js",
+        "src/export/excelExport.js",
+        "src/testing/autoTester.js",
+        "src/testing/debugLogger.js",
+        "src/utils/regex.js",
+        "src/utils/dedupe.js",
+        "src/utils/domHelpers.js",
+        "src/utils/scoring.js"
       ],
       "matches": ["<all_urls>"]
     }

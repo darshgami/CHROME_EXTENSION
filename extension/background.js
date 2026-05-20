@@ -2,7 +2,7 @@
  * Lead Scraper Pro - Background Service Worker
  */
 
-import { MESSAGES, STORAGE_KEYS, SCRAPING_STATUS } from './constants.js';
+import { STORAGE_KEYS, SCRAPING_STATUS } from './constants.js';
 import { storageManager } from './storageManager.js';
 
 console.log('Lead Scraper Pro: Service Worker Initialized.');
@@ -12,22 +12,41 @@ chrome.runtime.onInstalled.addListener(() => {
     storageManager.set(STORAGE_KEYS.CURRENT_SESSION, { status: SCRAPING_STATUS.IDLE });
 });
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // console.log('📨 Message received in Background:', message.type);
+// Broadcast messages to all extension pages (e.g. popup)
+const broadcastMessage = (message) => {
+    chrome.runtime.sendMessage(message).catch(() => {
+        // Ignore error if popup or options page is not open
+    });
+};
 
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     switch (message.type) {
-        case MESSAGES.START_SCRAPING:
+        case 'START_SCRAPING':
             handleStartScraping(message.payload);
             break;
-        case MESSAGES.STOP_SCRAPING:
+        case 'STOP_SCRAPING':
             handleStopScraping();
             break;
-        case MESSAGES.LEAD_FOUND:
+        case 'PAUSE_SCRAPING':
+            handlePauseScraping();
+            break;
+        case 'RESUME_SCRAPING':
+            handleResumeScraping();
+            break;
+        case 'LEAD_FOUND':
             handleLeadFound(message.payload);
             break;
-        case MESSAGES.SCRAPING_STATUS:
+        case 'SCRAPING_STATUS':
             handleStatusUpdate(message.payload);
             break;
+        case 'LOG_MESSAGE':
+            // Forward log messages to popup
+            broadcastMessage(message);
+            break;
+        case 'RUN_DIAGNOSTICS':
+            // Forward diagnostics request to content script
+            handleRunDiagnostics(sendResponse);
+            return true; // Keep channel open for async response
     }
     return true; // Keep channel open
 });
@@ -39,6 +58,14 @@ async function handleStartScraping(payload) {
         config: payload,
         startTime: Date.now()
     });
+    
+    // Broadcast start to active tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab) {
+        chrome.tabs.sendMessage(tab.id, { type: 'START_SCRAPING', payload }).catch(err => {
+            console.error('Failed to send START to content script:', err);
+        });
+    }
 }
 
 async function handleStopScraping() {
@@ -48,25 +75,68 @@ async function handleStopScraping() {
     // Broadcast stop to all tabs
     const tabs = await chrome.tabs.query({});
     tabs.forEach(tab => {
-        chrome.tabs.sendMessage(tab.id, { type: MESSAGES.STOP_SCRAPING }).catch(() => {});
+        chrome.tabs.sendMessage(tab.id, { type: 'STOP_SCRAPING' }).catch(() => {});
     });
+    
+    broadcastMessage({ type: 'SCRAPING_STATUS', payload: SCRAPING_STATUS.IDLE });
+}
+
+async function handlePauseScraping() {
+    console.log('⏸ Pausing scrape process.');
+    await storageManager.set(STORAGE_KEYS.CURRENT_SESSION, { status: SCRAPING_STATUS.PAUSED });
+    
+    // Broadcast pause to all tabs
+    const tabs = await chrome.tabs.query({});
+    tabs.forEach(tab => {
+        chrome.tabs.sendMessage(tab.id, { type: 'PAUSE_SCRAPING' }).catch(() => {});
+    });
+    
+    broadcastMessage({ type: 'SCRAPING_STATUS', payload: SCRAPING_STATUS.PAUSED });
+}
+
+async function handleResumeScraping() {
+    console.log('▶ Resuming scrape process.');
+    await storageManager.set(STORAGE_KEYS.CURRENT_SESSION, { status: SCRAPING_STATUS.RUNNING });
+    
+    // Broadcast resume to all tabs
+    const tabs = await chrome.tabs.query({});
+    tabs.forEach(tab => {
+        chrome.tabs.sendMessage(tab.id, { type: 'RESUME_SCRAPING' }).catch(() => {});
+    });
+    
+    broadcastMessage({ type: 'SCRAPING_STATUS', payload: SCRAPING_STATUS.RUNNING });
 }
 
 async function handleLeadFound(lead) {
-    // console.log('💾 Saving lead:', lead.name);
     await storageManager.saveLead(lead);
     
-    // Forward to popup if it's open
-    chrome.runtime.sendMessage({ 
-        type: MESSAGES.LEAD_FOUND, 
+    // Broadcast to update stats/table in popup
+    broadcastMessage({ 
+        type: 'LEAD_FOUND', 
         payload: lead 
-    }).catch(() => {}); // Ignore error if popup closed
+    });
 }
 
 async function handleStatusUpdate(status) {
     console.log('📊 Status update:', status);
-    if (status === 'completed') {
+    if (status === 'completed' || status === 'idle') {
         await storageManager.set(STORAGE_KEYS.CURRENT_SESSION, { status: SCRAPING_STATUS.IDLE });
     }
-    chrome.runtime.sendMessage({ type: MESSAGES.SCRAPING_STATUS, payload: status }).catch(() => {});
+    broadcastMessage({ type: 'SCRAPING_STATUS', payload: status });
+}
+
+async function handleRunDiagnostics(sendResponse) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) {
+        sendResponse({ error: 'No active tab found.' });
+        return;
+    }
+    
+    chrome.tabs.sendMessage(tab.id, { type: 'RUN_DIAGNOSTICS' }, (response) => {
+        if (chrome.runtime.lastError) {
+            sendResponse({ error: 'Failed to communicate with content script. Make sure you are on a webpage and reload the page.' });
+        } else {
+            sendResponse(response);
+        }
+    });
 }

@@ -1,117 +1,89 @@
 /**
- * Lead Scraper Pro - Main Content Logic
+ * Lead Scraper Pro - Main Content Script Entry
+ * Runs as an ES module inside the page context.
  */
 
-import { MESSAGES } from './constants.js';
-import { UniversalScraper } from './scraper.js';
+import { UniversalScraper } from './src/scraper/universalScraper.js';
+import { autoTester } from './src/testing/autoTester.js';
+import { debugLogger } from './src/testing/debugLogger.js';
 
 let isScraping = false;
+let isPaused = false;
 let scraper = null;
 
-console.log('Lead Scraper Pro: Universal Engine Ready.');
+debugLogger.log('Universal Scraper Content Script Loaded and Active.', 'success');
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     switch (message.type) {
-        case MESSAGES.START_SCRAPING:
+        case 'START_SCRAPING':
             if (!isScraping) {
                 isScraping = true;
-                startScrapingProcess(message.payload);
+                isPaused = false;
+                startScrapingSession(message.payload);
             }
             break;
-        case MESSAGES.STOP_SCRAPING:
+        case 'STOP_SCRAPING':
             isScraping = false;
-            console.log('🛑 Scraping stopped by user.');
+            isPaused = false;
+            debugLogger.log('Scraping session stopped by user.', 'warning');
             break;
+        case 'PAUSE_SCRAPING':
+            isPaused = true;
+            debugLogger.log('Scraping session paused.', 'info');
+            break;
+        case 'RESUME_SCRAPING':
+            isPaused = false;
+            debugLogger.log('Scraping session resumed.', 'success');
+            break;
+        case 'RUN_DIAGNOSTICS':
+            autoTester.runDiagnostics().then(results => {
+                sendResponse({ diagnostics: results });
+            }).catch(err => {
+                sendResponse({ error: err.message });
+            });
+            return true; // Keep channel open for async response
     }
 });
 
-async function startScrapingProcess(config) {
-    console.log('📍 START SCRAPING', config);
+async function startScrapingSession(config) {
+    debugLogger.log(`Starting Scraping session for query: "${config.keyword}"`, 'info');
     scraper = new UniversalScraper(config);
-    
-    let pageCount = 1;
-    const maxPages = 20;
 
     try {
-        while (isScraping && pageCount <= maxPages) {
-            console.log(`📄 Processing Page ${pageCount}...`);
+        await scraper.startScrapingSession(async (leads) => {
+            // Callback executed after each scroll/scrape step
             
-            // 1. Scroll for dynamic content
-            await scraper.autoScroll(2);
-            
-            // 2. Extract Leads
-            const leads = await scraper.scrape();
-            console.log(`📦 Page ${pageCount}: Found ${leads.length} leads.`);
-            
-            // 3. Send to background immediately
-            if (leads.length > 0) {
-                leads.forEach(lead => {
-                    chrome.runtime.sendMessage({
-                        type: MESSAGES.LEAD_FOUND,
-                        payload: lead
-                    });
+            // Wait while paused
+            while (isScraping && isPaused) {
+                await new Promise(r => setTimeout(r, 500));
+            }
+
+            if (!isScraping) return;
+
+            // Send leads to background
+            leads.forEach(lead => {
+                chrome.runtime.sendMessage({
+                    type: 'LEAD_FOUND',
+                    payload: lead
+                }).catch(() => {
+                    // Ignore errors if runtime disconnects
                 });
-            } else {
-                console.warn(`⚠️ No leads extracted from page ${pageCount}.`);
-            }
+            });
+        });
 
-            // 4. Handle Pagination
-            if (isScraping) {
-                const hasMore = await handlePagination();
-                if (!hasMore) {
-                    console.log('🏁 No more pages detected.');
-                    break;
-                }
-                pageCount++;
-                await new Promise(r => setTimeout(r, 2500)); // Delay for page load
-            }
-        }
+        // Loop finished
+        isScraping = false;
+        chrome.runtime.sendMessage({ 
+            type: 'SCRAPING_STATUS', 
+            payload: 'completed' 
+        }).catch(() => {});
+        
     } catch (error) {
-        console.error('❌ Content Script Error:', error);
+        isScraping = false;
+        debugLogger.log(`Scraping Session Crashed: ${error.message}`, 'error');
+        chrome.runtime.sendMessage({ 
+            type: 'SCRAPING_STATUS', 
+            payload: 'error' 
+        }).catch(() => {});
     }
-
-    console.log('✅ Scraping session finished.');
-    isScraping = false;
-    chrome.runtime.sendMessage({ 
-        type: MESSAGES.SCRAPING_STATUS, 
-        payload: 'completed' 
-    });
-}
-
-async function handlePagination() {
-    const nextButtons = [
-        'Next', 'next', '→', '>', '»', 'Following', 'Load More', 'Show More',
-        'Siguiente', 'Suivant', 'Nächste', 'Próximo', 'अगला'
-    ];
-
-    const allLinks = Array.from(document.querySelectorAll('a, button, span'));
-    
-    const nextBtn = allLinks.find(el => {
-        const text = el.innerText.trim();
-        // Check for exact text match or primary "Next" patterns
-        return (nextButtons.includes(text) || nextButtons.some(k => text.length < 20 && text.includes(k))) && 
-               el.offsetParent !== null;
-    });
-
-    if (nextBtn) {
-        console.log('👉 Clicking Next Button:', nextBtn.innerText);
-        nextBtn.click();
-        return true;
-    }
-
-    // Numbered pagination fallback
-    const activePage = document.querySelector('.active, .current, [aria-current="page"]');
-    if (activePage) {
-        const nextNum = parseInt(activePage.innerText) + 1;
-        if (!isNaN(nextNum)) {
-            const nextNumBtn = allLinks.find(el => el.innerText.trim() === nextNum.toString());
-            if (nextNumBtn) {
-                console.log('👉 Clicking Page Number:', nextNum);
-                nextNumBtn.click();
-                return true;
-            }
-        }
-    }
-
-    return false;
 }
