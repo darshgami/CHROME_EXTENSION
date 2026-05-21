@@ -24,6 +24,10 @@ export default defineConfig({
           }
           return 'assets/[name].[ext]';
         },
+        // Inline dynamic imports and disable manualChunks to emit self-contained
+        // entry bundles (useful for content scripts that are injected as a single file)
+        inlineDynamicImports: true,
+        manualChunks: undefined,
       },
     },
   },

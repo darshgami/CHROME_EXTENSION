@@ -3,13 +3,29 @@
  * Generates and downloads standard CSV sheets.
  */
 
+import { dedupe } from './dedupe.js';
+
 export const csvExport = {
     /**
      * Download leads array as a CSV file.
      * @param {Object[]} leads 
      * @param {string} filename 
      */
-    export(leads, filename = 'leads_export.csv') {
+    // export(leads, filename, options)
+    // options: { skipDedupe: boolean }
+    export(leads, filename = 'leads_export.csv', options = {}) {
+        const { skipDedupe = false } = options;
+
+        let toExport = leads || [];
+        if (!skipDedupe) {
+            try {
+                toExport = dedupe.filterDuplicates(toExport);
+            } catch (e) {
+                // If dedupe fails for any reason, fall back to original list
+                console.error('Dedupe failed during CSV export:', e);
+                toExport = leads || [];
+            }
+        }
         const headers = [
             "Company Name", 
             "Phone", 
@@ -24,7 +40,7 @@ export const csvExport = {
             "Scraped At"
         ];
 
-        const rows = leads.map(lead => [
+        const rows = toExport.map(lead => [
             lead.name || '',
             lead.phone || '',
             lead.email || '',

@@ -3,13 +3,29 @@
  * Generates formatted spreadsheet sheets using SheetJS (XLSX).
  */
 
+import { dedupe } from './dedupe.js';
+
 export const excelExport = {
     /**
      * Download leads array as an Excel file.
      * @param {Object[]} leads 
      * @param {string} filename 
      */
-    export(leads, filename = 'leads_export.xlsx') {
+    // export(leads, filename, options)
+    // options: { skipDedupe: boolean }
+    export(leads, filename = 'leads_export.xlsx', options = {}) {
+        const { skipDedupe = false } = options;
+
+        let toExport = leads || [];
+        if (!skipDedupe) {
+            try {
+                toExport = dedupe.filterDuplicates(toExport);
+            } catch (e) {
+                console.error('Dedupe failed during Excel export:', e);
+                toExport = leads || [];
+            }
+        }
+
         const globalXlsx = window.XLSX;
         
         if (!globalXlsx) {
@@ -17,7 +33,7 @@ export const excelExport = {
             return false;
         }
 
-        const worksheetData = leads.map((lead, index) => ({
+        const worksheetData = toExport.map((lead, index) => ({
             "Sr. No": index + 1,
             "Company Name": lead.name,
             "Phone": lead.phone,
