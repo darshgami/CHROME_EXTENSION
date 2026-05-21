@@ -1,0 +1,20 @@
+{
+    "appName": "Lead Scraper Pro",
+    "startBtn": "Start Scraping",
+    "stopBtn": "Stop Scraping",
+    "exportBtn": "Export Excel",
+    "clearBtn": "Clear",
+    "targetCountry": "Target Country",
+    "stateProvince": "State/Province/Region",
+    "city": "City",
+    "keywords": "Keywords (Business Category)",
+    "totalLeads": "Total Leads",
+    "valid": "Valid",
+    "invalid": "Invalid",
+    "livePreview": "Live Preview",
+    "ready": "Ready to scrape",
+    "scraping": "Scraping in progress...",
+    "completed": "Scraping completed",
+    "noLeadsFound": "No leads found. Try different keywords or city.",
+    "selectCountry": "Select Country"
+}

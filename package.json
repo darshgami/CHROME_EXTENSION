@@ -4,7 +4,7 @@
   "description": "Universal Business Directory Lead Finder Extension",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node build-post.js",
+    "build": "vite build && node scripts/build-post.js",
     "test": "playwright test"
   },
   "dependencies": {

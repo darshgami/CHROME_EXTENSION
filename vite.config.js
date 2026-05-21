@@ -4,23 +4,25 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
-  base: './',
-  root: path.resolve(__dirname, 'popup-src'),
+  base: './', // Use relative paths
   build: {
-    outDir: path.resolve(__dirname, 'extension'),
-    emptyOutDir: false, // Prevent deleting other extension files
+    outDir: 'dist',
+    emptyOutDir: true,
     rollupOptions: {
       input: {
-        popup: path.resolve(__dirname, 'popup-src/popup.html'),
+        popup: path.resolve(__dirname, 'popup.html'),
+        background: path.resolve(__dirname, 'src/background/background.js'),
+        'content-main': path.resolve(__dirname, 'src/content/content-main.js'),
+        content: path.resolve(__dirname, 'src/content/content.js'),
       },
       output: {
-        entryFileNames: 'popup.js',
-        chunkFileNames: '[name].js',
+        entryFileNames: '[name].js',
+        chunkFileNames: 'assets/[name].js',
         assetFileNames: (assetInfo) => {
           if (assetInfo.name && assetInfo.name.endsWith('.css')) {
             return 'popup.css';
           }
-          return '[name].[ext]';
+          return 'assets/[name].[ext]';
         },
       },
     },
